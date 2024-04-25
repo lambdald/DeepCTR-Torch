@@ -135,7 +135,7 @@ class BaseModel(nn.Module):
         self.history = History()
 
     def fit(self, x=None, y=None, batch_size=None, epochs=1, verbose=1, initial_epoch=0, validation_split=0.,
-            validation_data=None, shuffle=True, callbacks=None):
+            validation_data=None, shuffle=True, callbacks=None, tb_writer=None):
         """
 
         :param x: Numpy array of training data (if the model has a single input), or list of Numpy arrays (if the model has multiple inputs).If input layers in the model are named, you can also pass a
@@ -226,6 +226,7 @@ class BaseModel(nn.Module):
             callbacks.__setattr__('model', self)
         callbacks.model.stop_training = False
 
+        global_step = 0
         # Train
         print("Train on {0} samples, validate on {1} samples, {2} steps per epoch".format(
             len(train_tensor_data), len(val_y), steps_per_epoch))
@@ -260,6 +261,7 @@ class BaseModel(nn.Module):
                         total_loss_epoch += total_loss.item()
                         total_loss.backward()
                         optim.step()
+                        global_step += 1
 
                         if verbose > 0:
                             for name, metric_fun in self.metrics.items():
@@ -268,11 +270,17 @@ class BaseModel(nn.Module):
                                 train_result[name].append(metric_fun(
                                     y.cpu().data.numpy(), y_pred.cpu().data.numpy().astype("float64")))
 
+                        if tb_writer is not None:
+                            tb_writer.add_scalar('train/loss', loss, global_step=global_step, walltime=None)
+                            tb_writer.add_scalar('train/reg_loss', reg_loss, global_step=global_step, walltime=None)
+                            tb_writer.add_scalar('train/aux_loss', self.aux_loss, global_step=global_step, walltime=None)
 
             except KeyboardInterrupt:
                 t.close()
                 raise
             t.close()
+
+
 
             # Add epoch_logs
             epoch_logs["loss"] = total_loss_epoch / sample_num
@@ -303,6 +311,10 @@ class BaseModel(nn.Module):
             callbacks.on_epoch_end(epoch, epoch_logs)
             if self.stop_training:
                 break
+
+            if tb_writer is not None:
+                for k, v in epoch_logs.items():
+                    tb_writer.add_scalar(f'epoch/{k}', v, global_step=epoch, walltime=None)
 
         callbacks.on_train_end()
 
